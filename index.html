@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hitster Web - Edición Spotify Multijugador</title>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800;900&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+  <!-- Motor Multijugador PeerJS -->
+  <script src="https://unpkg.com/peerjs@1.5.1/dist/peerjs.min.js"></script>
+  <script src="https://open.spotify.com/embed/iframe-api/v1" async></script>
+  <style>
+    :root {
+      --bg: #0b0c10; --card-bg: #1f2833; --accent: #1db954; --accent-hover: #1ed760;
+      --text: #ffffff; --text-sub: #c5c6c7; --danger: #ff4757; --gold: #ffc107; --gold-dark: #d4af37;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body { font-family: 'Outfit', sans-serif; background-color: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; overflow-x: hidden; }
+    header { background: rgba(15, 15, 20, 0.9); backdrop-filter: blur(10px); padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #222; position: sticky; top: 0; z-index: 100; }
+    .logo { font-size: 1.8rem; font-weight: 900; background: linear-gradient(45deg, #1db954, #8a2be2); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .status-bar { display: flex; gap: 15px; align-items: center; }
+    .badge { background: #181818; padding: 6px 14px; border-radius: 20px; font-size: 0.9rem; font-weight: 600; border: 1px solid #333; color: var(--text); }
+    #spotify-status-btn { cursor: pointer; transition: all 0.2s ease; }
+    #spotify-status-btn:hover { background: #282828; }
+    .btn { background: var(--accent); color: #ffffff; font-weight: 700; padding: 14px 28px; border-radius: 30px; border: none; cursor: pointer; transition: all 0.2s ease; font-family: 'Space Grotesk', sans-serif; display: inline-flex; align-items: center; justify-content: center; font-size: 1.05rem; }
+    .btn:hover { transform: translateY(-2px); box-shadow: 0 4px 15px rgba(29, 185, 84, 0.4); background: var(--accent-hover); }
+    .btn-secondary { background: #282828; color: var(--text); border: 1px solid #444; padding: 10px 20px; font-size: 0.9rem; }
+    .btn-secondary:hover { background: #383838; }
+    .btn-gold { background: linear-gradient(135deg, var(--gold), var(--gold-dark)); color: #000; box-shadow: 0 4px 15px rgba(255, 193, 7, 0.3); }
+    .btn-gold:hover { transform: translateY(-2px); filter: brightness(1.1); }
+    .btn:disabled, .btn-secondary:disabled { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
+    main { flex: 1; display: flex; flex-direction: column; padding: 20px; max-width: 1400px; margin: 0 auto; width: 100%; }
+
+    .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: flex; justify-content: center; align-items: center; z-index: 1000; backdrop-filter: blur(8px); }
+    .modal-content { background: var(--card-bg); padding: 35px; border-radius: 20px; max-width: 420px; width: 90%; text-align: center; border: 2px solid var(--accent); box-shadow: 0 0 35px rgba(29, 185, 84, 0.25); animation: scaleIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+    @keyframes scaleIn { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    
+    .setup-panel { background: var(--card-bg); padding: 30px; border-radius: 16px; max-width: 650px; margin: 30px auto; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+    .menu-card { background: rgba(255,255,255,0.03); padding: 20px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); margin-top: 20px; }
+    .input-group { margin: 15px 0; text-align: left; }
+    .input-group label { display: block; margin-bottom: 8px; color: var(--text-sub); font-size: 0.9rem; }
+    .input-group input, .input-group select { width: 100%; padding: 14px 16px; border-radius: 10px; border: 1px solid #444; background: #121212; color: #fff; font-size: 1rem; transition: all 0.2s; }
+    
+    /* Asegurar que las opciones del select sean oscuras */
+    select option { background: #121212; color: #fff; }
+
+    .timeline-container { margin: 30px 0; overflow-x: auto; padding: 20px 0; min-height: 220px; }
+    .timeline { display: flex; align-items: center; gap: 12px; padding: 10px; width: max-content; margin: 0 auto; }
+    
+    .slot { width: 50px; height: 140px; border: 2px dashed #444; border-radius: 10px; display: flex; flex-direction: column; justify-content: center; align-items: center; cursor: pointer; transition: all 0.2s; background: rgba(255,255,255,0.02); position: relative; }
+    .slot:hover { border-color: var(--accent); background: rgba(29, 185, 84, 0.1); }
+    
+    .card { width: 130px; height: 170px; background: #282828; border-radius: 12px; padding: 10px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 8px 20px rgba(0,0,0,0.4); border: 1px solid #333; animation: fadeIn 0.3s ease; }
+    .card img { width: 100%; height: 75px; object-fit: cover; border-radius: 6px; }
+    .card .title { font-size: 0.75rem; font-weight: 700; line-height: 1.1; margin-top: 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .card .artist { font-size: 0.65rem; color: var(--text-sub); }
+    .card .year { font-size: 1.1rem; font-weight: 900; color: var(--accent); text-align: center; background: rgba(0,0,0,0.3); padding: 2px 0; border-radius: 4px; }
+    
+    .card-mystery { width: 130px; height: 170px; background: #111; border-radius: 12px; border: 2px solid #555; display: flex; justify-content: center; align-items: center; font-size: 3rem; font-weight: 900; color: #555; box-shadow: 0 0 20px rgba(0,0,0,0.8); }
+
+    .hitster-token { width: 36px; height: 36px; background: radial-gradient(circle, var(--gold) 30%, var(--gold-dark) 90%); border-radius: 50%; border: 3px solid #ffeaa7; display: flex; justify-content: center; align-items: center; font-weight: 900; color: #000; box-shadow: 0 4px 10px rgba(0,0,0,0.5), inset 0 2px 5px rgba(255,255,255,0.6); position: absolute; top: -15px; animation: bounceToken 2s infinite; z-index: 10; font-size: 0.8rem; letter-spacing: -1px; }
+    @keyframes bounceToken { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+
+    /* Estilos para las tarjetas neón de los jugadores */
+    .players-neon-grid { display: flex; flex-wrap: wrap; gap: 15px; justify-content: center; margin: 15px auto 25px auto; max-width: 1100px; width: 100%; }
+    .player-neon-card { background: rgba(20, 20, 28, 0.85); border-radius: 16px; padding: 14px 20px; min-width: 200px; flex: 1; max-width: 260px; backdrop-filter: blur(8px); transition: all 0.3s ease; position: relative; border: 2px solid var(--neon-color, #1db954); box-shadow: 0 0 15px var(--neon-glow, rgba(29, 185, 84, 0.3)); }
+    .player-neon-card.is-active { transform: translateY(-4px) scale(1.03); box-shadow: 0 0 25px var(--neon-glow, rgba(29, 185, 84, 0.6)), inset 0 0 10px var(--neon-glow, rgba(29, 185, 84, 0.2)); }
+    .player-neon-card .p-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-weight: 800; font-size: 1.1rem; color: #fff; }
+    .player-neon-card .p-tag { font-size: 0.7rem; text-transform: uppercase; padding: 2px 8px; border-radius: 10px; font-weight: 900; background: rgba(255,255,255,0.1); color: var(--neon-color); border: 1px solid var(--neon-color); }
+    .player-neon-card .p-stat { display: flex; justify-content: space-between; align-items: center; font-size: 0.88rem; color: var(--text-sub); margin-top: 4px; }
+    .player-neon-card .p-val { font-weight: 800; color: #fff; font-size: 1rem; }
+
+    .active-card-zone { display: flex; flex-direction: column; align-items: center; gap: 20px; margin-top: auto; background: rgba(255,255,255,0.03); padding: 30px 25px; border-radius: 20px; border: 1px solid #222; }
+    .mystery-card-wrapper { position: relative; width: 100%; max-width: 320px; height: 100px; border-radius: 14px; overflow: hidden; background: #181818; border: 2px solid var(--accent); box-shadow: 0 0 25px rgba(29, 185, 84, 0.25); }
+    .spotify-iframe-slot { width: 100%; height: 100%; border: none; }
+    .mystery-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(135deg, #22222b, #111115); display: flex; justify-content: center; align-items: center; z-index: 10; pointer-events: none; }
+    .mystery-question-mark { font-size: 3rem; font-weight: 900; color: var(--accent); text-shadow: 0 0 15px rgba(29, 185, 84, 0.6); }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div id="custom-modal" class="modal-overlay hidden"><div id="modal-content" class="modal-content"></div></div>
+  <header>
+    <div class="logo">Hitster Spotify</div>
+    <div class="status-bar">
+      <div id="game-stats-single" class="hidden" style="gap: 15px; align-items: center;">
+        <div class="badge">Puntos: <span id="score">0</span></div>
+        <div class="badge" id="lives-container">Vidas: <span id="lives">❤️❤️❤️</span></div>
+      </div>
+      <button id="spotify-status-btn" class="badge" onclick="toggleSpotifyConnection()">🔴 Spotify: Desconectado</button>
+      <button class="btn btn-secondary" onclick="resetGame()">Inicio</button>
+    </div>
+  </header>
+  <main>
+    <!-- VISTAS SETUP -->
+    <section id="auth-view" class="setup-panel">
+      <h2>🎵 Conecta tu Música</h2>
+      <button class="btn" style="margin-top: 20px; color:#000;" onclick="authenticateSpotifyPKCE()">🟢 Conectar Cuenta de Spotify</button>
+    </section>
+
+    <section id="mode-view" class="setup-panel hidden">
+      <h2>🕹️ Selecciona el Modo</h2>
+      <div style="display:flex; flex-direction:column; gap:15px; margin-top:20px;">
+        <button class="btn" style="justify-content:center; color:#fff;" onclick="selectMode('single')">👤 Jugar en Solitario</button>
+        <button class="btn btn-secondary" style="justify-content:center; font-size:1.05rem;" onclick="selectMode('multi')">🌐 Multijugador</button>
+      </div>
+    </section>
+
+    <section id="single-setup-view" class="setup-panel hidden">
+      <h2>👤 Partida en Solitario</h2>
+      <div class="menu-card">
+        <button class="btn btn-secondary" style="width:100%; justify-content:center; padding:12px;" onclick="startWithLikedSongs()">💖 Jugar con mis "Canciones que me gustan"</button>
+        <div class="input-group">
+          <label>📜 O selecciona de tus Playlists:</label>
+          <select id="user-playlists-select"><option value="">Cargando playlists...</option></select>
+        </div>
+        <button class="btn" style="width:100%; justify-content:center; margin-top:10px; color:#ffffff;" onclick="startWithSelectedPlaylist()">¡Empezar a Jugar!</button>
+      </div>
+    </section>
+
+    <section id="multi-lobby-view" class="setup-panel hidden">
+      <h2>🌐 Sala Multijugador</h2>
+      <div class="input-group"><label>Tu Nombre de Jugador:</label><input type="text" id="player-name" placeholder="Ej. Carlos"></div>
+      <button class="btn" style="width:100%; justify-content:center; color:#fff; margin-bottom: 25px;" onclick="createRoom()">➕ Crear Nueva Sala</button>
+      <div style="display:flex; align-items:center; margin-bottom: 15px;"><hr style="flex:1; border-color:#333;"><span style="padding:0 10px; color:var(--text-sub); font-size: 0.8rem;">O ÚNETE A UNA SALA</span><hr style="flex:1; border-color:#333;"></div>
+      <div class="input-group" style="display:flex; gap:10px;">
+         <input type="text" id="room-code-input" placeholder="CÓDIGO (Ej. ABCD)" style="text-transform: uppercase; flex: 1;">
+         <button class="btn btn-secondary" onclick="joinRoom()">Unirse</button>
+      </div>
+    </section>
+
+    <section id="host-waiting-view" class="setup-panel hidden">
+      <h2>👑 Sala: <span id="host-room-code" style="color:var(--accent); letter-spacing: 2px;"></span></h2>
+      <div style="text-align:left; background:#121212; padding:15px; border-radius:8px; margin-bottom:10px;">
+        <h3 style="font-size:0.9rem; margin-bottom:10px; color:var(--text-sub)">Jugadores Conectados:</h3>
+        <ul id="host-players-list" style="list-style:none; font-weight:bold; color: var(--accent);"></ul>
+      </div>
+      <div class="menu-card">
+        <h3 style="color:var(--text-sub);">🎵 Aporta música a la partida:</h3>
+        <button class="btn btn-secondary" style="width:100%; margin-top:10px;" onclick="addMultiMusic('liked', 'host')">💖 Añadir mis "Me gusta"</button>
+        <div class="input-group" style="margin-top:15px;">
+            <select id="host-playlist-select"><option value="">Tus playlists...</option></select>
+        </div>
+        <button class="btn btn-secondary" style="width:100%; margin-top:10px;" onclick="addMultiMusic('playlist', 'host')">➕ Añadir a la Baraja</button>
+        <p style="margin-top: 25px; font-size:1.1rem; font-weight: bold; color: var(--accent);">Canciones listas: <span id="host-pool-count">0</span></p>
+      </div>
+      <button class="btn" style="width:100%; justify-content:center; color:#fff; margin-top:20px;" onclick="startMultiplayerGame()">▶️ Empezar Partida</button>
+    </section>
+
+    <section id="client-waiting-view" class="setup-panel hidden">
+      <h2>Esperando al anfitrión...</h2>
+      <div class="menu-card">
+        <h3 style="color:var(--text-sub);">🎵 Aporta TU música:</h3>
+        <button class="btn btn-secondary" style="width:100%; margin-top:10px;" onclick="addMultiMusic('liked', 'client')">💖 Añadir mis "Me gusta"</button>
+        <div class="input-group" style="margin-top:15px;">
+            <select id="client-playlist-select"><option value="">Tus playlists...</option></select>
+        </div>
+        <button class="btn btn-secondary" style="width:100%; margin-top:10px;" onclick="addMultiMusic('playlist', 'client')">➕ Añadir a la Baraja</button>
+        <p style="margin-top: 25px; font-size:1.1rem; font-weight: bold; color: var(--accent);">Canciones listas: <span id="client-pool-count">0</span></p>
+      </div>
+    </section>
+
+    <!-- TABLERO -->
+    <section id="game-panel" class="hidden">
+      <div id="turn-indicator-container" class="hidden" style="text-align: center; margin-bottom:10px;"></div>
+      <!-- Marcador Multijugador Neón -->
+      <div id="players-scoreboard" class="players-neon-grid hidden"></div>
+      <div class="timeline-container"><div class="timeline" id="timeline"></div></div>
+      <div class="active-card-zone">
+        <div id="revelar-btn-container" class="hidden" style="width:100%; text-align:center; margin-bottom:10px;">
+           <button class="btn btn-gold" onclick="resolveStealPhase()">👁️ Revelar Resultado Definitivo</button>
+        </div>
+        <div class="mystery-card-wrapper" id="music-player-wrapper">
+          <div class="mystery-overlay"><div class="mystery-question-mark">?</div></div>
+          <div id="embed-iframe-slot" class="spotify-iframe-slot"></div>
+        </div>
+        <button id="play-btn" class="btn" onclick="playCurrentTrack()">Reproducir Canción</button>
+        <p style="color:var(--text-sub); font-size:0.85rem;" id="game-instructions"></p>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const CLIENT_ID = '2f606df6214643e09171cf5f6aab5060';
+    const REDIRECT_URI = window.location.origin + window.location.pathname;
+    let accessToken = localStorage.getItem('spotify_access_token');
+    let gameMode = 'single', poolSongs = [], timelineSongs = [], currentSong = null, score = 0, lives = 3;
+    let embedController = null, spotifyIFrameAPI = null, peer = null, connections = [], hostConnection = null, isHost = false, myPlayerId = '', multiRoomCode = '';
+    
+    let multiGameState = { status: 'lobby', players: {}, turnOrder: [], currentTurnIndex: 0, currentSong: null, poolSongs: [], winner: null, turnState: 'guessing', lastResult: null, currentGuessIndex: null, steals: [] };
+
+    window.onSpotifyIframeApiReady = (IFrameAPI) => { spotifyIFrameAPI = IFrameAPI; };
+    function setupControllerForTrack(uri) {
+      const slot = document.getElementById('embed-iframe-slot'); slot.innerHTML = ''; 
+      if (!spotifyIFrameAPI) return;
+      spotifyIFrameAPI.createController(slot, { width: '100%', height: '100', uri: uri }, (Controller) => { embedController = Controller; });
+    }
+    function playCurrentTrack() { if (embedController) embedController.togglePlay(); }
+
+    function generateRandomString(length) { const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'; return crypto.getRandomValues(new Uint8Array(length)).reduce((acc, x) => acc + possible[x % possible.length], ""); }
+    async function sha256(plain) { const data = new TextEncoder().encode(plain); return window.crypto.subtle.digest('SHA-256', data); }
+    function base64urlencode(a) { return btoa(String.fromCharCode.apply(null, new Uint8Array(a))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+
+    function showCustomAlert(title, message, onConfirm = null) {
+      const modal = document.getElementById('custom-modal'); modal.classList.remove('hidden');
+      document.getElementById('modal-content').innerHTML = `<h2 style="color:var(--accent); margin-bottom:15px; font-size:1.8rem;">${title}</h2><p style="color:var(--text-sub); font-size:1.1rem; margin-bottom:25px; white-space:pre-wrap;">${message}</p><button id="alert-btn" class="btn" style="width:100%;">Entendido</button>`;
+      document.getElementById('alert-btn').onclick = () => { modal.classList.add('hidden'); if (onConfirm) onConfirm(); };
+    }
+
+    function showResultModal(title, titleColor, song, isMyTurn, actionHtml) {
+      const modal = document.getElementById('custom-modal'); modal.classList.remove('hidden');
+      let html = `<h2 style="color:${titleColor}; margin-bottom:15px; font-size:1.8rem;">${title}</h2>
+        <img src="${song.cover}" style="width:160px; height:160px; object-fit:cover; border-radius:12px; margin-bottom:20px;">
+        <h2 style="font-size:1.5rem; margin-bottom:8px; line-height:1.2; color:#fff;">${song.title}</h2>
+        <h3 style="color:var(--text-sub); font-size:1rem; margin-bottom:15px;">${song.artist}</h3>
+        <div style="font-size:3.5rem; font-weight:900; color:var(--accent); margin-bottom:20px;">${song.year}</div>`;
+      if (isMyTurn && actionHtml) html += actionHtml;
+      else if (isMyTurn) html += `<button class="btn" style="width:100%;" onclick="endTurnHandler()">Siguiente Turno</button>`;
+      else html += `<p style="color:var(--text-sub); font-size:0.95rem; margin-top:20px; animation: pulse 1.5s infinite;">Esperando al jugador actual...</p>`;
+      document.getElementById('modal-content').innerHTML = html;
+    }
+
+    function endTurnHandler() {
+       document.getElementById('custom-modal').classList.add('hidden');
+       if (gameMode === 'single') { if (lives > 0) nextTurnSingle(); else endGameSingle(); }
+       else {
+           const cb = document.getElementById('token-claim-cb'); const claimed = cb ? cb.checked : false;
+           if (isHost) processEndTurn(myPlayerId, claimed); else hostConnection.send({ type: 'END_TURN', playerId: myPlayerId, claimedToken: claimed });
+       }
+    }
+
+    function showView(viewId) {
+      ['auth-view', 'mode-view', 'single-setup-view', 'multi-lobby-view', 'host-waiting-view', 'client-waiting-view', 'game-panel'].forEach(id => document.getElementById(id).classList.add('hidden'));
+      document.getElementById(viewId).classList.remove('hidden');
+      if (viewId === 'game-panel') {
+        if(gameMode === 'single') document.getElementById('game-stats-single').style.display = 'flex';
+        document.getElementById('spotify-status-btn').style.display = 'none';
+      } else { document.getElementById('game-stats-single').style.display = 'none'; document.getElementById('spotify-status-btn').style.display = 'flex'; }
+    }
+
+    function updateSpotifyStatusUI() {
+      const btn = document.getElementById('spotify-status-btn');
+      if (accessToken) { btn.innerHTML = '🟢 Spotify: Conectado'; btn.style.color = 'var(--accent)'; }
+      else { btn.innerHTML = '🔴 Spotify: Desconectado'; btn.style.color = 'var(--danger)'; }
+    }
+    function toggleSpotifyConnection() { if (accessToken) { localStorage.removeItem('spotify_access_token'); accessToken = null; updateSpotifyStatusUI(); resetGame(); } else authenticateSpotifyPKCE(); }
+    async function authenticateSpotifyPKCE() {
+      const cv = generateRandomString(64); window.localStorage.setItem('code_verifier', cv);
+      const url = new URL("https://accounts.spotify.com/authorize");
+      url.search = new URLSearchParams({ response_type: 'code', client_id: CLIENT_ID, scope: 'user-library-read playlist-read-private playlist-read-collaborative', code_challenge_method: 'S256', code_challenge: base64urlencode(await sha256(cv)), redirect_uri: REDIRECT_URI }).toString();
+      window.location.href = url.toString();
+    }
+    async function handleAuthCallback() {
+      const code = new URLSearchParams(window.location.search).get('code');
+      if (code) {
+        try {
+          const res = await fetch("https://accounts.spotify.com/api/token", { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ client_id: CLIENT_ID, grant_type: 'authorization_code', code: code, redirect_uri: REDIRECT_URI, code_verifier: localStorage.getItem('code_verifier') }) });
+          const data = await res.json();
+          if (data.access_token) { accessToken = data.access_token; localStorage.setItem('spotify_access_token', accessToken); window.history.replaceState({}, document.title, window.location.pathname); }
+        } catch (e) {}
+      }
+      updateSpotifyStatusUI(); if (accessToken) { showView('mode-view'); loadAllUserPlaylists(); } else showView('auth-view');
+    }
+    window.addEventListener('load', handleAuthCallback);
+
+    function selectMode(mode) { gameMode = mode; if (mode === 'single') showView('single-setup-view'); else showView('multi-lobby-view'); }
+
+    async function loadAllUserPlaylists() {
+      let url = 'https://api.spotify.com/v1/me/playlists?limit=50';
+      try {
+        while (url) {
+          const res = await fetch(url, { headers: { 'Authorization': `Bearer ${accessToken}` } }); const data = await res.json();
+          if (data.items) {
+            data.items.forEach(pl => {
+              if (pl && pl.id) {
+                const opt = document.createElement('option'); opt.value = pl.id; opt.innerText = pl.name;
+                document.getElementById('user-playlists-select').appendChild(opt.cloneNode(true));
+                document.getElementById('host-playlist-select').appendChild(opt.cloneNode(true));
+                document.getElementById('client-playlist-select').appendChild(opt);
+              }
+            });
+          }
+          url = data.next;
+        }
+      } catch (e) {}
+    }
+
+    async function fetchPlaylistTracks(playlistId) {
+      if (!accessToken || !playlistId) return [];
+      let songs = [];
+      let endpoints = [
+        `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=100`,
+        `https://api.spotify.com/v1/playlists/${playlistId}/items?limit=100`
+      ];
+      for (let url of endpoints) {
+        try {
+          while (url && songs.length < 150) {
+            const res = await fetch(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+            if (!res.ok) break;
+            const data = await res.json();
+            if (!data || !data.items) break;
+            const batch = data.items
+              .filter(i => i && (i.track || i.item))
+              .map(i => {
+                const t = i.track || i.item;
+                if (!t || !t.id || !t.album || !t.album.release_date) return null;
+                return {
+                  id: t.id,
+                  title: t.name,
+                  artist: t.artists ? t.artists.map(a => a.name).join(', ') : 'Artista desconocido',
+                  year: parseInt(t.album.release_date.substring(0, 4)),
+                  cover: t.album.images && t.album.images[0] ? t.album.images[0].url : '',
+                  uri: t.uri
+                };
+              })
+              .filter(t => t !== null && !isNaN(t.year));
+
+            songs = songs.concat(batch);
+            url = data.next;
+          }
+          if (songs.length > 0) break;
+        } catch (e) { console.error(e); }
+      }
+      return songs;
+    }
+
+    async function fetchLikedSongs() {
+      let songs = [], url = 'https://api.spotify.com/v1/me/tracks?limit=50';
+      try {
+        for (let i=0; i<4 && url; i++) {
+          const res = await fetch(url, { headers: { 'Authorization': `Bearer ${accessToken}` } }); const data = await res.json();
+          if (data.items) { songs = songs.concat(data.items.filter(item => item.track && item.track.album).map(i => ({ id: i.track.id, title: i.track.name, artist: i.track.artists.map(a=>a.name).join(', '), year: parseInt(i.track.album.release_date.substring(0,4)), cover: i.track.album.images[0]?.url||'', uri: i.track.uri }))); }
+          url = data.next;
+        }
+      } catch (e) {} return songs;
+    }
+
+    // ==== SOLITARIO ====
+    async function startWithLikedSongs() { poolSongs = await fetchLikedSongs(); if (poolSongs.length < 5) return showCustomAlert("Aviso", "Mínimo 5 canciones en 'Me gusta'."); initSingleGame(); }
+    async function startWithSelectedPlaylist() { poolSongs = await fetchPlaylistTracks(document.getElementById('user-playlists-select').value); if (poolSongs.length < 5) return showCustomAlert("Aviso", "Playlist muy corta."); initSingleGame(); }
+    function initSingleGame() { poolSongs.sort(()=>Math.random()-0.5); timelineSongs = [poolSongs.pop()]; showView('game-panel'); document.getElementById('turn-indicator-container').classList.add('hidden'); renderSingleGame(); nextTurnSingle(); }
+    function renderSingleGame() {
+      document.getElementById('score').innerText = score; document.getElementById('lives').innerText = '❤️'.repeat(lives);
+      const t = document.getElementById('timeline'); t.innerHTML = ''; t.appendChild(createSlotNode(0));
+      timelineSongs.forEach((s, idx) => {
+        const c = document.createElement('div'); c.className = 'card'; c.innerHTML = `<img src="${s.cover}"><div><div class="title">${s.title}</div><div class="artist">${s.artist}</div></div><div class="year">${s.year}</div>`;
+        t.appendChild(c); t.appendChild(createSlotNode(idx + 1));
+      });
+    }
+    function nextTurnSingle() { if (poolSongs.length===0 || lives<=0) return endGameSingle(); currentSong = poolSongs.pop(); if (embedController) embedController.loadEntity(currentSong.uri); else setupControllerForTrack(currentSong.uri); }
+    function submitAnswer(idx) {
+      if (!currentSong) return;
+      if (gameMode === 'single') {
+        let ok = true; if (idx > 0 && timelineSongs[idx-1].year > currentSong.year) ok = false; if (idx < timelineSongs.length && timelineSongs[idx].year < currentSong.year) ok = false;
+        if (ok) { timelineSongs.splice(idx, 0, currentSong); score += 100; confetti(); } else { lives -= 1; }
+        renderSingleGame(); showResultModal(ok ? "¡CORRECTO!" : "¡FALLASTE!", ok ? "var(--accent)" : "var(--danger)", currentSong, true, `<button class="btn" style="width:100%;" onclick="endTurnHandler()">Siguiente Turno</button>`);
+      }
+    }
+    function createSlotNode(idx) {
+      const s = document.createElement('div'); s.className = 'slot'; s.innerHTML = '<span style="font-size:1.5rem; color:#666;">+</span>';
+      s.onclick = () => submitAnswer(idx); return s;
+    }
+    function endGameSingle() { showCustomAlert("¡Juego Terminado!", `Puntuación final: ${score}`, resetGame); }
+
+    // ==== MULTIJUGADOR ====
+    function createRoom() {
+      const name = document.getElementById('player-name').value.trim(); if (!name) return;
+      myPlayerId = generateRandomString(8); multiRoomCode = generateRandomString(4).toUpperCase(); peer = new Peer('hitster-' + multiRoomCode);
+      peer.on('open', () => { isHost = true; multiGameState.players[myPlayerId] = { name: name, timeline: [], tokens: 2 }; multiGameState.turnOrder.push(myPlayerId); document.getElementById('host-room-code').innerText = multiRoomCode; updateHostLobbyList(); showView('host-waiting-view'); });
+      peer.on('connection', (conn) => { connections.push(conn); conn.on('data', (d) => handleClientMessage(conn, d)); });
+    }
+    function joinRoom() {
+      const name = document.getElementById('player-name').value.trim(); const code = document.getElementById('room-code-input').value.trim().toUpperCase(); if (!name || !code) return;
+      myPlayerId = generateRandomString(8); peer = new Peer();
+      peer.on('open', () => {
+        hostConnection = peer.connect('hitster-' + code);
+        hostConnection.on('open', () => { isHost = false; hostConnection.send({ type: 'JOIN', playerId: myPlayerId, name: name }); showView('client-waiting-view'); });
+        hostConnection.on('data', (d) => { if (d.type === 'STATE_UPDATE') { multiGameState = d.state; renderMultiplayerState(); } else if (d.type === 'EVENT') handleMultiplayerEvent(d.payload); });
+      });
+    }
+
+    async function addMultiMusic(type, role) {
+      let newSongs = [];
+      if (type === 'liked') {
+          newSongs = await fetchLikedSongs();
+      } else {
+          const playlistId = document.getElementById(role+'-playlist-select').value;
+          if (!playlistId) return showCustomAlert("Aviso", "Por favor selecciona una playlist válida.");
+          newSongs = await fetchPlaylistTracks(playlistId);
+      }
+
+      if (newSongs.length === 0) return showCustomAlert("Aviso", "No se encontraron canciones o la playlist está vacía.");
+
+      if (isHost) { 
+          multiGameState.poolSongs = multiGameState.poolSongs.concat(newSongs); 
+          broadcastState(); 
+          showCustomAlert("¡Éxito!", `Añadiste ${newSongs.length} canciones.`); 
+      } else { 
+          hostConnection.send({ type: 'ADD_SONGS_TO_POOL', songs: newSongs }); 
+          showCustomAlert("¡Éxito!", `Aportaste ${newSongs.length} canciones.`); 
+      }
+    }
+
+    function handleClientMessage(conn, d) {
+      if (!isHost) return;
+      if (d.type === 'JOIN') { multiGameState.players[d.playerId] = { name: d.name, timeline: [], tokens: 2 }; multiGameState.turnOrder.push(d.playerId); updateHostLobbyList(); broadcastState(); }
+      else if (d.type === 'SUBMIT_ANSWER') processMultiAnswer(d.playerId, d.insertedIndex);
+      else if (d.type === 'ADD_SONGS_TO_POOL') { multiGameState.poolSongs = multiGameState.poolSongs.concat(d.songs); broadcastState(); }
+      else if (d.type === 'END_TURN') processEndTurn(d.playerId, d.claimedToken);
+      else if (d.type === 'USE_TOKEN') processTokenAction(d.playerId, d.action);
+      else if (d.type === 'STEAL_GUESS') processStealGuess(d.playerId, d.insertedIndex);
+      else if (d.type === 'RESOLVE_STEALS') processResolveSteals();
+    }
+    function broadcastState() { if (!isHost) return; connections.forEach(c => c.send({ type: 'STATE_UPDATE', state: multiGameState })); renderMultiplayerState(); }
+    function updateHostLobbyList() { const list = document.getElementById('host-players-list'); list.innerHTML = ''; multiGameState.turnOrder.forEach(pid => { const li = document.createElement('li'); li.innerText = '👤 ' + multiGameState.players[pid].name; list.appendChild(li); }); }
+
+    function startMultiplayerGame() {
+      if (multiGameState.poolSongs.length === 0) return showCustomAlert("Aviso", "Baraja vacía.");
+      const u = []; const seen = new Set(); for (let s of multiGameState.poolSongs) { if (!seen.has(s.id)) { u.push(s); seen.add(s.id); } }
+      multiGameState.poolSongs = u.sort(()=>Math.random()-0.5);
+      multiGameState.turnOrder.forEach(pid => multiGameState.players[pid].timeline.push(multiGameState.poolSongs.pop()));
+      multiGameState.currentSong = multiGameState.poolSongs.pop(); multiGameState.status = 'playing'; multiGameState.turnState = 'guessing'; broadcastState();
+    }
+
+    function checkPlacement(timeline, song, idx) {
+        if (idx > 0 && timeline[idx-1].year > song.year) return false;
+        if (idx < timeline.length && timeline[idx].year < song.year) return false;
+        return true;
+    }
+
+    // Funciones que envuelven las acciones del cliente para mandarlas al host
+    function handleGuessSubmit(idx) {
+        if (isHost) processMultiAnswer(myPlayerId, idx);
+        else hostConnection.send({ type: 'SUBMIT_ANSWER', playerId: myPlayerId, insertedIndex: idx });
+    }
+    function handleTokenAction(action) {
+        if (isHost) processTokenAction(myPlayerId, action);
+        else hostConnection.send({ type: 'USE_TOKEN', playerId: myPlayerId, action: action });
+    }
+
+    function processMultiAnswer(playerId, idx) {
+      multiGameState.currentGuessIndex = idx; multiGameState.steals = []; multiGameState.turnState = 'stealing_phase'; broadcastState();
+    }
+
+    function processStealGuess(playerId, idx) {
+      const p = multiGameState.players[playerId];
+      if (p.tokens > 0 && !multiGameState.steals.find(s => s.playerId === playerId)) {
+         p.tokens -= 1; multiGameState.steals.push({ playerId: playerId, index: idx }); broadcastState();
+      }
+    }
+
+    function processResolveSteals() {
+      const currentPid = multiGameState.turnOrder[multiGameState.currentTurnIndex];
+      const activePlayer = multiGameState.players[currentPid];
+      const song = multiGameState.currentSong;
+      const primaryCorrect = checkPlacement(activePlayer.timeline, song, multiGameState.currentGuessIndex);
+
+      let winnerOfCard = null;
+      if (primaryCorrect) {
+          activePlayer.timeline.splice(multiGameState.currentGuessIndex, 0, song);
+          winnerOfCard = activePlayer;
+          if (activePlayer.timeline.length >= 10) multiGameState.winner = currentPid;
+      } else {
+          for (let steal of multiGameState.steals) {
+              if (checkPlacement(activePlayer.timeline, song, steal.index)) {
+                  const thief = multiGameState.players[steal.playerId];
+                  thief.timeline.push(song);
+                  winnerOfCard = thief;
+                  if (thief.timeline.length >= 10) multiGameState.winner = steal.playerId;
+                  break;
+              }
+          }
+      }
+
+      multiGameState.lastResult = { primaryCorrect, winnerName: winnerOfCard ? winnerOfCard.name : null };
+      multiGameState.turnState = 'showing_result';
+      if (multiGameState.winner) multiGameState.status = 'finished';
+      broadcastState();
+    }
+
+    function resolveStealPhase() {
+      if (isHost) processResolveSteals(); else hostConnection.send({ type: 'RESOLVE_STEALS' });
+    }
+
+    function processTokenAction(playerId, action) {
+      const p = multiGameState.players[playerId];
+      if (action === 'skip' && p.tokens >= 1) {
+          p.tokens -= 1;
+          if (multiGameState.poolSongs.length > 0) multiGameState.currentSong = multiGameState.poolSongs.pop();
+          broadcastState();
+      }
+    }
+
+    function processEndTurn(playerId, claimedToken) {
+      const p = multiGameState.players[playerId];
+      if (claimedToken && p.tokens < 5) p.tokens += 1;
+      multiGameState.currentTurnIndex = (multiGameState.currentTurnIndex + 1) % multiGameState.turnOrder.length;
+      if (multiGameState.poolSongs.length > 0) multiGameState.currentSong = multiGameState.poolSongs.pop();
+      else multiGameState.status = 'finished';
+      multiGameState.turnState = 'guessing'; multiGameState.currentGuessIndex = null; multiGameState.steals = []; broadcastState();
+    }
+
+    // RENDERIZADO ESTADO MULTIJUGADOR
+    function renderMultiplayerState() {
+      if (multiGameState.status === 'lobby') {
+          if (document.getElementById('host-pool-count')) document.getElementById('host-pool-count').innerText = multiGameState.poolSongs.length;
+          if (document.getElementById('client-pool-count')) document.getElementById('client-pool-count').innerText = multiGameState.poolSongs.length; return;
+      }
+      if (multiGameState.status === 'finished') {
+        const winName = multiGameState.players[multiGameState.winner] ? multiGameState.players[multiGameState.winner].name : 'Empate (Sin cartas)';
+        showCustomAlert("🎉 ¡Juego Terminado!", `¡Ha ganado la partida: ${winName}!`, resetGame); return;
+      }
+      if (multiGameState.status === 'playing') {
+        showView('game-panel'); document.getElementById('turn-indicator-container').classList.remove('hidden');
+
+        // Renderizar Tarjetas Neón de Todos los Jugadores
+        const scoreboard = document.getElementById('players-scoreboard');
+        scoreboard.classList.remove('hidden');
+        scoreboard.innerHTML = '';
+        const neonPalettes = [
+          { color: '#00ffcc', glow: 'rgba(0, 255, 204, 0.4)' },
+          { color: '#ff007f', glow: 'rgba(255, 0, 127, 0.4)' },
+          { color: '#ffc107', glow: 'rgba(255, 193, 7, 0.4)' },
+          { color: '#a855f7', glow: 'rgba(168, 85, 247, 0.4)' },
+          { color: '#00d2ff', glow: 'rgba(0, 210, 255, 0.4)' },
+          { color: '#ff5722', glow: 'rgba(255, 87, 34, 0.4)' }
+        ];
+
+        multiGameState.turnOrder.forEach((pid, pIdx) => {
+          const p = multiGameState.players[pid];
+          const isTurn = (pid === multiGameState.turnOrder[multiGameState.currentTurnIndex]);
+          const palette = neonPalettes[pIdx % neonPalettes.length];
+          const pCard = document.createElement('div');
+          pCard.className = `player-neon-card ${isTurn ? 'is-active' : ''}`;
+          pCard.style.setProperty('--neon-color', palette.color);
+          pCard.style.setProperty('--neon-glow', palette.glow);
+
+          pCard.innerHTML = `
+            <div class="p-header">
+              <span>${p.name} ${pid === myPlayerId ? ' (Tú)' : ''}</span>
+              ${isTurn ? '<span class="p-tag">Turno</span>' : ''}
+            </div>
+            <div class="p-stat"><span>Canciones:</span><span class="p-val">${p.timeline.length}/10</span></div>
+            <div class="p-stat"><span>Fichas:</span><span class="p-val">${'🟡'.repeat(p.tokens)}${'⚫'.repeat(5 - p.tokens)}</span></div>
+          `;
+          scoreboard.appendChild(pCard);
+        });
+
+        if (multiGameState.turnState === 'showing_result') {
+            const currentPid = multiGameState.turnOrder[multiGameState.currentTurnIndex];
+            const isMyTurn = (currentPid === myPlayerId);
+            const res = multiGameState.lastResult;
+            let title = res.primaryCorrect ? "¡CORRECTO!" : "¡ROBO O FALLO!";
+            let titleColor = res.primaryCorrect ? "var(--accent)" : "var(--gold)";
+            if (res.winnerName) title += ` (Ganó la carta: ${res.winnerName})`;
+
+            let actionHtml = '';
+            if (isMyTurn) {
+                actionHtml = `
+                   <div style="margin:15px 0; font-size:0.9rem; text-align:left; background:#181818; padding:10px; border-radius:8px;">
+                       <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                           <input type="checkbox" id="token-claim-cb" style="width:18px; height:18px;">
+                           <span>¿Adivinaste correctamente TÍTULO y ARTISTA? (Ganar 1 Ficha HITSTER)</span>
+                       </label>
+                   </div>
+                   <button class="btn" style="width:100%;" onclick="endTurnHandler()">Siguiente Turno</button>
+                `;
+            }
+
+            showResultModal(title, titleColor, multiGameState.currentSong, isMyTurn, actionHtml);
+        } else {
+            document.getElementById('custom-modal').classList.add('hidden');
+        }
+
+        const currentTurnPid = multiGameState.turnOrder[multiGameState.currentTurnIndex];
+        const activePlayer = multiGameState.players[currentTurnPid];
+        const isMyTurn = (currentTurnPid === myPlayerId);
+
+        let turnHtml = `<h2 style="font-size:1.4rem;">Turno de: <span style="color:var(--accent);">${activePlayer.name}</span> ${isMyTurn ? '(¡TÚ!)' : ''}</h2>`;
+
+        if (multiGameState.turnState === 'guessing' && isMyTurn) {
+            turnHtml += `<div style="margin-top:10px; display:flex; gap:10px; justify-content:center;">
+                <button class="btn btn-secondary" onclick="handleTokenAction('skip')" ${activePlayer.tokens < 1 ? 'disabled' : ''}>⏭️ Cambiar Canción (1 Ficha)</button>
+            </div>`;
+        }
+
+        if (multiGameState.turnState === 'stealing_phase') {
+            const currentThief = multiGameState.steals.find(s => s.playerId === myPlayerId);
+            if (!isMyTurn) {
+                turnHtml += `<p style="color:var(--gold); margin-top:5px; font-weight:bold;">⚡ FASE DE ROBO: Si crees que falló, coloca tu ficha en el tablero.</p>`;
+                if (currentThief) turnHtml += `<p style="color:var(--accent); font-size:0.9rem;">✅ Ya colocaste tu ficha de robo.</p>`;
+            } else {
+                turnHtml += `<p style="color:var(--gold); margin-top:5px; font-weight:bold;">esperando a que los demás intenten robar o reveles resultado.</p>`;
+            }
+        }
+
+        document.getElementById('turn-indicator-container').innerHTML = turnHtml;
+
+        if (isHost && multiGameState.turnState === 'stealing_phase') {
+            document.getElementById('revelar-btn-container').classList.remove('hidden');
+        } else {
+            document.getElementById('revelar-btn-container').classList.add('hidden');
+        }
+
+        const t = document.getElementById('timeline'); t.innerHTML = '';
+        const myTimeline = activePlayer.timeline;
+
+        const showSlots = (multiGameState.turnState === 'guessing' && isMyTurn) || (multiGameState.turnState === 'stealing_phase' && !isMyTurn);
+
+        if (showSlots) t.appendChild(createMultiSlotNode(0));
+
+        myTimeline.forEach((s, idx) => {
+          const c = document.createElement('div'); c.className = 'card';
+          c.innerHTML = `<img src="${s.cover}"><div><div class="title">${s.title}</div><div class="artist">${s.artist}</div></div><div class="year">${s.year}</div>`;
+
+          if (multiGameState.turnState === 'stealing_phase' || multiGameState.turnState === 'showing_result') {
+              if (idx === multiGameState.currentGuessIndex) {
+                   const mysteryCard = document.createElement('div');
+                   mysteryCard.className = 'card-mystery';
+                   mysteryCard.innerHTML = '?';
+                   t.appendChild(mysteryCard);
+              }
+          }
+
+          t.appendChild(c);
+          if (showSlots) t.appendChild(createMultiSlotNode(idx + 1));
+        });
+
+        if (multiGameState.turnState === 'stealing_phase' || multiGameState.turnState === 'showing_result') {
+             if (myTimeline.length === multiGameState.currentGuessIndex) {
+                 const mysteryCard = document.createElement('div');
+                 mysteryCard.className = 'card-mystery';
+                 mysteryCard.innerHTML = '?';
+                 t.appendChild(mysteryCard);
+             }
+        }
+
+        if (embedController) embedController.loadEntity(multiGameState.currentSong.uri);
+        else setupControllerForTrack(multiGameState.currentSong.uri);
+      }
+    }
+
+    function createMultiSlotNode(idx) {
+      const s = document.createElement('div'); s.className = 'slot';
+      const currentTurnPid = multiGameState.turnOrder[multiGameState.currentTurnIndex];
+      const isMyTurn = (currentTurnPid === myPlayerId);
+
+      if (multiGameState.turnState === 'stealing_phase' && !isMyTurn) {
+          const mySteal = multiGameState.steals.find(st => st.playerId === myPlayerId);
+          if (mySteal && mySteal.index === idx) {
+              s.innerHTML = '<div class="hitster-token">⚡</div>';
+          } else {
+              s.innerHTML = '<span style="font-size:1.2rem; color:var(--gold);">🎯</span>';
+          }
+      } else {
+          s.innerHTML = '<span style="font-size:1.5rem; color:#666;">+</span>';
+      }
+
+      s.onclick = () => {
+         if (multiGameState.turnState === 'guessing' && isMyTurn) {
+             handleGuessSubmit(idx);
+         } else if (multiGameState.turnState === 'stealing_phase' && !isMyTurn) {
+             if (isHost) processStealGuess(myPlayerId, idx);
+             else hostConnection.send({ type: 'STEAL_GUESS', playerId: myPlayerId, insertedIndex: idx });
+         }
+      };
+      return s;
+    }
+
+    function resetGame() {
+      if (peer) peer.destroy();
+      gameMode = 'single'; poolSongs = []; timelineSongs = []; currentSong = null; score = 0; lives = 3; connections = []; isHost = false;
+      multiGameState = { status: 'lobby', players: {}, turnOrder: [], currentTurnIndex: 0, currentSong: null, poolSongs: [], winner: null, turnState: 'guessing', lastResult: null, currentGuessIndex: null, steals: [] };
+      document.getElementById('players-scoreboard').classList.add('hidden');
+      if (accessToken) showView('mode-view'); else showView('auth-view');
+    }
+  </script>
+</body>
+</html>
